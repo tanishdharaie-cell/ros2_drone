@@ -70,6 +70,22 @@ AeroPin Coordinate → Decode → Waypoint → Position Controller (PID) → Vel
 
 ---
 
+## Implementation Status & Additional Work
+
+All required TODOs listed below are **complete and independently verified**, and the implementation goes beyond the original scope in several places:
+
+- **Full autonomous round trip.** The mission controller doesn't just deliver — it lands, drops the payload, takes off a second time, navigates back to the exact point it launched from, and lands again for good, fully unattended. Getting this reliable required diagnosing a real defect in an earlier repeated-takeoff design (re-sending the takeoff command was interrupting the flight controller's own internal transition timer) and redesigning around it — the final version reuses the same proven TAKEOFF → CLIMB → GOTO → DESCEND → LAND logic for both the outbound and return legs rather than introducing separate return-specific machinery.
+- **Steering correction.** A real bug was found and fixed where the drone would drive at full forward speed even while still mid-turn toward a target, instead of slowing until it was actually facing the right way. This was corrected in the delivery `GOTO` state and in both the vision search's `SEARCH` and `APPROACH` states.
+- **Collision-retreat coverage.** Basic collision detection + retreat-and-resume handling, previously only present in some flight states, was extended to all of them (`GOTO`, `DESCEND`, `SEARCH`, `APPROACH`).
+- **Vision search fixes.** The spiral search pattern was found to be centered on world `(0,0)` instead of the drone's actual takeoff point (as the code's own TODO comment specified) — corrected to capture and use the real launch position.
+- **Global safety ceiling.** A state-independent altitude cap was added as a general-purpose safety backstop, active regardless of which mission state is currently running.
+- **Bonus Challenge 1 (multi-drop in one run):** not implemented. Each run is independently reliable and can target any AeroPin — confirmed by simply re-running the node with a new coordinate — but sequencing multiple deliveries within a single run was not built.
+- **Bonus Challenge 2 (full obstacle avoidance):** partially addressed. Collision *retreat* (react after contact) is implemented throughout; proactive obstacle detection and rerouting before contact is not.
+
+The full technical writeup — flight controller design, AeroPin algorithm, state machine design, vision-based estimation, payload logic, and a detailed account of the debugging process (including the return-to-base timer bug and a simulation-performance finding that shaped the final design) — is in the report linked at the bottom of this document.
+
+---
+
 ## System Overview
 
 The project consists of six major components.
@@ -84,7 +100,7 @@ A nested **position → velocity → attitude** PID/PD control loop converts a d
 A keyboard node that publishes velocity and takeoff/land commands manually, useful for sanity-checking flight behavior before handing control to the autonomous mission stack.
 
 ### 4. AeroPin Coordinate Codec & Mission Controller
-Encodes/decodes between Gazebo local coordinates and 8-character AeroPin strings using a hierarchical 4-way subdivision scheme, then drives the drone through a takeoff → climb → goto → descend → land waypoint state machine to physically reach a decoded coordinate.
+Encodes/decodes between Gazebo local coordinates and 8-character AeroPin strings using a hierarchical 4-way subdivision scheme, then drives the drone through a takeoff → climb → goto → descend → land → drop → return-to-base state machine to physically reach a decoded coordinate and come home again.
 
 ### 5. Vision-Based AeroPin Estimation
 A spiral-search YOLO detection pipeline that flies the drone over the search area, detects a target object in either camera feed, estimates its real-world position from the detection geometry, and encodes that position into its own approximate AeroPin.
@@ -268,7 +284,8 @@ Enter an AeroPin coordinate when prompted. This starts the AeroPin node, which w
 2. Publish `/simple_drone/takeoff` to command autonomous takeoff
 3. Climb to cruise altitude and navigate to the decoded AeroPin coordinate
 4. Descend, land, and trigger the payload drop at the target
-5. Confirm mission completion
+5. Take off again, navigate back to the original launch point, and land for good
+6. Confirm mission completion
 
 ---
 
@@ -280,7 +297,7 @@ Open a new terminal and run:
 ros2 run drone_delivery_system yolo_search_controller
 ```
 
-Enter a YOLO object class when prompted (e.g. `person`, `car`, `dog`). The drone will take off, fly an expanding spiral search pattern, run YOLO on both cameras, and report the approximate AeroPin of the detected target once found.
+Enter a YOLO object class when prompted (e.g. `person`, `car`, `dog`). The drone will take off, fly an expanding spiral search pattern centered on its own launch point, run YOLO on both cameras, and report the approximate AeroPin of the detected target once found.
 
 ---
 
@@ -307,6 +324,8 @@ Create or extend a node that:
 - Returns to the launch pad after the final delivery.
 - Reports a summary (succeeded/failed per waypoint) at the end of the run.
 
+**Status: not implemented.** Each run currently delivers to one AeroPin and returns home reliably; sequencing multiple targets in one continuous run remains open.
+
 ## Bonus Challenge 2 — Collision Detection & Orientation Control
 
 ### Objective
@@ -321,6 +340,8 @@ Create or extend a node that:
 - Detect obstacles within a configurable safety radius and classify collision risk.
 - Triggers an avoidance maneuver (hover, stop, or reroute) when an obstacle enters the critical zone, then resumes the original mission once the path is clear.
 - Computes and maintains the drone's yaw toward its next waypoint while rejecting unsafe attitude commands before sending them to the flight controller.
+
+**Status: partially implemented.** All flight states now detect collisions and retreat-and-resume on contact, and yaw is continuously computed and maintained toward the active waypoint throughout every flight state. Proactive detection within a safety radius *before* contact, and full rerouting around obstacles, are not implemented.
   
 ---
 
