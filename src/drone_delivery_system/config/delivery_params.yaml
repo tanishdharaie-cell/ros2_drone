@@ -1,0 +1,32 @@
+# ── existing nodes (unchanged) ───────────────────────────────────────
+
+delivery_controller:
+  ros__parameters:
+    drone_namespace: "simple_drone"
+    fly_alt: 2.0
+    land_sonar: 0.05
+    sonar_topic: "/simple_drone/sonar"
+    odom_topic:  "/simple_drone/odom"
+
+yolo_detector:
+  ros__parameters:
+    front_camera_topic:  "/simple_drone/front/image_raw"
+    bottom_camera_topic: "/simple_drone/bottom/image_raw"
+    confidence_threshold: 0.45
+    target_class: "person"
+    publish_annotated: true
+
+payload_manager:
+  ros__parameters:
+    odom_topic:   "/simple_drone/odom"
+    world_name:   "empty"
+
+# ── NEW: coordinate / GAZIPIN mission controller ─────────────────────
+coordinate_mission_controller:
+  ros__parameters:
+    drone_namespace: "simple_drone"
+    cruise_alt:  3.0      # fly at this altitude en-route (metres)
+    stop_radius: 0.25     # stop this far from XY target (metres)
+    land_sonar:  0.5      # descend until sonar reads below this (metres)
+    sonar_topic: "/simple_drone/sonar"
+    odom_topic:  "/simple_drone/odom"
